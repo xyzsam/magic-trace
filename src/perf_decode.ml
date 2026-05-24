@@ -168,14 +168,12 @@ let trace_error_to_event line : Event.Decode_error.t =
 ;;
 
 let parse_perf_cbr_event thread time line : Event.t =
-  match Re.Group.all (Re.exec perf_cbr_event_re line) with
-  | [| _; _; _; freq; _ |] ->
-    Ok
-      { thread; time; data = Power { freq = Int.of_string freq }; in_transaction = false }
-  | results ->
-    raise_s
-      [%message
-        "Regex of perf cbr event did not match expected fields" (results : string array)]
+  let freq =
+    match Re.Group.all (Re.exec perf_cbr_event_re line) with
+    | [| _; _; _; freq; _ |] -> Int.of_string freq
+    | _ | (exception _) -> 0
+  in
+  Ok { thread; time; data = Power { freq }; in_transaction = false }
 ;;
 
 let parse_location ?perf_maps ~pid instruction_pointer symbol_and_offset
@@ -631,6 +629,16 @@ module%test _ = struct
         ((Ok
           ((thread ((pid (21302)) (tid (21302)))) (time 22h51m58.700445693s)
            (data (Power (freq 4500)))))) |}]
+  ;;
+
+  let%expect_test "cbr event without frequency info" =
+    check
+      "  17574/18608   709003.924343511:          1                                                     cbr:  ffffffffa6e27067 [unknown] ([kernel.kallsyms])";
+    [%expect
+      {|
+        ((Ok
+          ((thread ((pid (17574)) (tid (18608)))) (time 8d4h56m43.924343511s)
+           (data (Power (freq 0)))))) |}]
   ;;
 
   (* Expected [None] because we ignore these events currently. *)
