@@ -96,3 +96,13 @@ There's a few potential ways to do this:
 - Use an offline disassembler tool like `objdump` on the entire binary
   and fetch basic blocks from that and parse them from text. This is
   probably the simplest to do from OCaml but would run slowest.
+
+## File Guide
+
+This directory contains the following key files:
+
+* **[magic_trace_direct_backend.ml](file:///Users/xyzsam/Downloads/magic-trace/direct_backend/magic_trace_direct_backend.ml)**: The main entry point for the direct backend, implementing the backend interface for recording and decoding.
+* **[manual_perf.ml](file:///Users/xyzsam/Downloads/magic-trace/direct_backend/manual_perf.ml)**: Handles interaction with the Linux `perf_event_open` system call to set up tracing buffers.
+* **[decoding.ml](file:///Users/xyzsam/Downloads/magic-trace/direct_backend/decoding.ml)**: Manages the decoding of Intel PT data using `libipt`.
+* **[decoding_stubs.c](file:///Users/xyzsam/Downloads/magic-trace/direct_backend/decoding_stubs.c)**: C stubs interfacing with `libipt`.
+* **[manual_perf_stubs.c](file:///Users/xyzsam/Downloads/magic-trace/direct_backend/manual_perf_stubs.c)**: C stubs for system calls and low-level perf interactions.
