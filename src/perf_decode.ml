@@ -25,6 +25,8 @@ let perf_branches_event_re =
   |> Re.compile
 ;;
 
+let perf_single_location_re = Re.Perl.re {|^ +([0-9a-f]+) (.*)$|} |> Re.compile
+
 let perf_cbr_event_re =
   Re.Perl.re {|^ *([a-z )(]*)? +cbr: +([0-9]+ +freq: +([0-9]+) MHz)?(.*)$|} |> Re.compile
 ;;
@@ -205,101 +207,133 @@ let parse_perf_cycles_event ?perf_maps (thread : Event.Thread.t) time lines : Ev
 ;;
 
 let parse_perf_branches_event ?perf_maps (thread : Event.Thread.t) time line : Event.t =
-  match Re.Group.all (Re.exec perf_branches_event_re line) with
-  | [| _
-     ; kind
-     ; aux_flags
-     ; src_instruction_pointer
-     ; src_symbol_and_offset
-     ; dst_instruction_pointer
-     ; dst_symbol_and_offset
-    |] ->
-    let src_instruction_pointer = Util.int64_of_hex_string src_instruction_pointer in
-    let dst_instruction_pointer = Util.int64_of_hex_string dst_instruction_pointer in
-    let src_symbol, src_symbol_offset =
-      parse_symbol_and_offset
-        ?perf_maps
-        thread.pid
-        src_symbol_and_offset
-        ~addr:src_instruction_pointer
-    in
-    let dst_symbol, dst_symbol_offset =
-      parse_symbol_and_offset
-        ?perf_maps
-        thread.pid
-        dst_symbol_and_offset
-        ~addr:dst_instruction_pointer
-    in
-    let starts_trace, kind =
-      match String.chop_prefix kind ~prefix:"tr strt" with
-      | None -> false, kind
-      | Some rest ->
-        ( true
-        , String.lstrip
-            ~drop:Char.is_whitespace
-            (match String.chop_prefix rest ~prefix:" jmp" with
-             | None -> rest
-             | Some r -> r) )
-    in
-    let ends_trace, kind =
-      match String.chop_prefix kind ~prefix:"tr end" with
-      | None -> false, kind
-      | Some rest -> true, String.lstrip ~drop:Char.is_whitespace rest
-    in
-    let trace_state_change : Trace_state_change.t option =
-      match starts_trace, ends_trace with
-      | true, false -> Some Start
-      | false, true -> Some End
-      | false, false
-      (* "tr strt tr end" happens when someone `go run`s ./demo/demo.go. But
-         that trace is pretty broken for other reasons, so it's hard to say if
-         this is truly necessary. Regardless, it's slightly more user friendly
-         to show a broken trace instead of crashing here. *)
-      | true, true -> None
-    in
-    (* record the flag indicating we're within a transaction *)
-    let in_transaction = String.contains aux_flags 'x' in
-    let kind : Event.Kind.t option =
-      match String.strip kind with
-      | "call" -> Some Call
-      | "return" -> Some Return
-      | "int" -> Some Interrupt
-      | "jmp" -> Some Jump
-      | "jcc" -> Some Jump
-      | "syscall" -> Some Syscall
-      | "hw int" -> Some Hardware_interrupt
-      | "iret" -> Some Iret
-      | "sysret" -> Some Sysret
-      | "async" -> Some Async
-      | "tx abrt" -> Some Tx_abort
-      | "" -> None
-      | _ ->
-        printf "Warning: skipping unrecognized perf output: %s\n%!" line;
-        None
-    in
-    Ok
-      { thread
-      ; time
-      ; data =
-          Trace
-            { trace_state_change
-            ; kind
-            ; src =
-                { instruction_pointer = src_instruction_pointer
-                ; symbol = src_symbol
-                ; symbol_offset = src_symbol_offset
-                }
-            ; dst =
-                { instruction_pointer = dst_instruction_pointer
-                ; symbol = dst_symbol
-                ; symbol_offset = dst_symbol_offset
-                }
+  match Re.exec_opt perf_branches_event_re line with
+  | None ->
+    (match Re.exec_opt perf_single_location_re line with
+     | Some groups ->
+       (match Re.Group.all groups with
+        | [| _; instruction_pointer; symbol_and_offset |] ->
+          let location =
+            parse_location
+              ?perf_maps
+              ~pid:thread.pid
+              instruction_pointer
+              symbol_and_offset
+          in
+          Ok
+            { thread
+            ; time
+            ; data = Stacktrace_sample { callstack = [ location ] }
+            ; in_transaction = false
             }
-      ; in_transaction
-      }
-  | results ->
-    raise_s
-      [%message "Regex of expected perf output did not match." (results : string array)]
+        | results ->
+          raise_s
+            [%message
+              "Regex of perf event did not match expected fields" (results : string array)])
+     | None ->
+       Error
+         { thread
+         ; time = Time_ns_unix.Span.Option.some time
+         ; instruction_pointer = None
+         ; message = sprintf "Failed to parse branch event: %s" line
+         })
+  | Some groups ->
+    (match Re.Group.all groups with
+     | [| _
+        ; kind
+        ; aux_flags
+        ; src_instruction_pointer
+        ; src_symbol_and_offset
+        ; dst_instruction_pointer
+        ; dst_symbol_and_offset
+       |] ->
+       let src_instruction_pointer = Util.int64_of_hex_string src_instruction_pointer in
+       let dst_instruction_pointer = Util.int64_of_hex_string dst_instruction_pointer in
+       let src_symbol, src_symbol_offset =
+         parse_symbol_and_offset
+           ?perf_maps
+           thread.pid
+           src_symbol_and_offset
+           ~addr:src_instruction_pointer
+       in
+       let dst_symbol, dst_symbol_offset =
+         parse_symbol_and_offset
+           ?perf_maps
+           thread.pid
+           dst_symbol_and_offset
+           ~addr:dst_instruction_pointer
+       in
+       let starts_trace, kind =
+         match String.chop_prefix kind ~prefix:"tr strt" with
+         | None -> false, kind
+         | Some rest ->
+           ( true
+           , String.lstrip
+               ~drop:Char.is_whitespace
+               (match String.chop_prefix rest ~prefix:" jmp" with
+                | None -> rest
+                | Some r -> r) )
+       in
+       let ends_trace, kind =
+         match String.chop_prefix kind ~prefix:"tr end" with
+         | None -> false, kind
+         | Some rest -> true, String.lstrip ~drop:Char.is_whitespace rest
+       in
+       let trace_state_change : Trace_state_change.t option =
+         match starts_trace, ends_trace with
+         | true, false -> Some Start
+         | false, true -> Some End
+         | false, false
+         (* "tr strt tr end" happens when someone `go run`s ./demo/demo.go. But
+            that trace is pretty broken for other reasons, so it's hard to say if
+            this is truly necessary. Regardless, it's slightly more user friendly
+            to show a broken trace instead of crashing here. *)
+         | true, true -> None
+       in
+       (* record the flag indicating we're within a transaction *)
+       let in_transaction = String.contains aux_flags 'x' in
+       let kind : Event.Kind.t option =
+         match String.strip kind with
+         | "call" -> Some Call
+         | "return" -> Some Return
+         | "int" -> Some Interrupt
+         | "jmp" -> Some Jump
+         | "jcc" -> Some Jump
+         | "syscall" -> Some Syscall
+         | "hw int" -> Some Hardware_interrupt
+         | "iret" -> Some Iret
+         | "sysret" -> Some Sysret
+         | "async" -> Some Async
+         | "tx abrt" -> Some Tx_abort
+         | "" -> None
+         | _ ->
+           printf "Warning: skipping unrecognized perf output: %s\n%!" line;
+           None
+       in
+       Ok
+         { thread
+         ; time
+         ; data =
+             Trace
+               { trace_state_change
+               ; kind
+               ; src =
+                   { instruction_pointer = src_instruction_pointer
+                   ; symbol = src_symbol
+                   ; symbol_offset = src_symbol_offset
+                   }
+               ; dst =
+                   { instruction_pointer = dst_instruction_pointer
+                   ; symbol = dst_symbol
+                   ; symbol_offset = dst_symbol_offset
+                   }
+               }
+         ; in_transaction
+         }
+     | results ->
+       raise_s
+         [%message
+           "Regex of expected perf output did not match." (results : string array)])
 ;;
 
 let parse_perf_extra_sampled_event
@@ -633,7 +667,9 @@ module%test _ = struct
 
   let%expect_test "cbr event without frequency info" =
     check
-      "  17574/18608   709003.924343511:          1                                                     cbr:  ffffffffa6e27067 [unknown] ([kernel.kallsyms])";
+      "  17574/18608   709003.924343511:          \
+       1                                                     cbr:  ffffffffa6e27067 \
+       [unknown] ([kernel.kallsyms])";
     [%expect
       {|
         ((Ok
