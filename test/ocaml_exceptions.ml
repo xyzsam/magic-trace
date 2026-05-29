@@ -86,7 +86,8 @@ let%expect_test "A raise_notrace OCaml exception" =
     ->     23ns END   camlRaise_test__raise_after_265
     ->     23ns END   camlRaise_test__raise_after_265
     ->     23ns END   camlRaise_test__raise_after_265
-    ->     24ns END   camlRaise_test__entry |}]
+    ->     24ns END   camlRaise_test__entry
+    |}]
 ;;
 
 let%expect_test "a corner case where a call doesn't return directly into a poptrap" =
@@ -110,7 +111,8 @@ let%expect_test "a corner case where a call doesn't return directly into a poptr
     ->      0ns BEGIN Module.get_229_552_code [inferred start time]
     ->      1ns BEGIN Module.foo_exn_224_547_code
     ->     14ns END   Module.foo_exn_224_547_code
-    ->     14ns END   Module.get_229_552_code |}]
+    ->     14ns END   Module.get_229_552_code
+    |}]
 ;;
 
 let%expect_test "the same test case above, as if there was no exception block" =
@@ -134,5 +136,6 @@ let%expect_test "the same test case above, as if there was no exception block" =
     ->      0ns BEGIN Module.get_229_552_code [inferred start time]
     ->      1ns BEGIN Module.foo_exn_224_547_code
     ->     14ns END   Module.foo_exn_224_547_code
-    ->     14ns END   Module.get_229_552_code      |}]
+    ->     14ns END   Module.get_229_552_code
+    |}]
 ;;

@@ -48170,5 +48170,6 @@ let%expect_test "test-events-output" =
         (data
          (Trace (trace_state_change End) (kind Syscall) (src 0x7ffff7ad2da7)
           (dst 0x0))))))
-     (callstack ((new_symbols ()) (callstack ((125 4)))))) |}]
+     (callstack ((new_symbols ()) (callstack ((125 4))))))
+    |}]
 ;;

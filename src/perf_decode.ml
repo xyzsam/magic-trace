@@ -9,7 +9,7 @@ let saturating_sub_i64 a b =
 
 let perf_event_header_re =
   Re.Perl.re
-    {|^ *([0-9]+)/([0-9]+) +([0-9]+)\.([0-9]+): +([0-9]+) +([a-z\-]+)(/[a-z=0-9]+)?(/[a-zA-Z]*)?:([a-zA-Z]+:)?(.*)$|}
+    {|^ *([0-9]+)/([0-9]+)\s+([0-9]+)\.([0-9]+):\s+([0-9]+)\s+([a-z\-]+)(/[a-z=0-9]+)?(/[a-zA-Z]*)?:([a-zA-Z]+:)?(.*)$|}
   |> Re.compile
 ;;
 
@@ -38,6 +38,7 @@ let trace_error_re =
 ;;
 
 let symbol_and_offset_re = Re.Perl.re {|^(.*)\+(0x[0-9a-f]+)\s+\(.*\)$|} |> Re.compile
+let symbol_no_offset_re = Re.Perl.re {|^(.*)\s+\(([^)]*)\)$|} |> Re.compile
 let unknown_symbol_dso_re = Re.Perl.re {|^\[unknown\]\s+\((.*)\)|} |> Re.compile
 
 type header =
@@ -128,23 +129,22 @@ let parse_symbol_and_offset ?perf_maps pid str ~addr : Symbol.t * int =
     in
     From_perf symbol, offset
   | _ | (exception _) ->
-    let failed = Symbol.Unknown, 0 in
-    (match perf_maps, pid with
-     | None, _ | _, None ->
-       (match Re.Group.all (Re.exec unknown_symbol_dso_re str) with
-        | [| _; dso |] ->
-          (* CR-someday tbrindus: ideally, we would subtract the DSO base offset
-             from [offset] here. *)
-          From_perf [%string "[unknown @ %{addr#Int64.Hex} (%{dso})]"], 0
-        | _ | (exception _) -> failed)
-     | Some perf_map, Some pid ->
-       (match Perf_map.Table.symbol ~pid perf_map ~addr with
-        | None -> failed
-        | Some location ->
-          (* It's strange that perf isn't resolving these symbols. It says on the
-             tin that it supports perf map files! *)
-          let offset = saturating_sub_i64 addr location.start_addr in
-          From_perf_map location, offset))
+    (match Re.Group.all (Re.exec symbol_no_offset_re str) with
+     | [| _; symbol; _dso |] -> From_perf symbol, 0
+     | _ | (exception _) ->
+       let failed = Symbol.Unknown, 0 in
+       (match perf_maps, pid with
+        | None, _ | _, None ->
+          (match Re.Group.all (Re.exec unknown_symbol_dso_re str) with
+           | [| _; dso |] ->
+             From_perf [%string "[unknown @ %{addr#Int64.Hex} (%{dso})]"], 0
+           | _ | (exception _) -> failed)
+        | Some perf_map, Some pid ->
+          (match Perf_map.Table.symbol ~pid perf_map ~addr with
+           | None -> failed
+           | Some location ->
+             let offset = saturating_sub_i64 addr location.start_addr in
+             From_perf_map location, offset)))
 ;;
 
 let trace_error_to_event line : Event.Decode_error.t =

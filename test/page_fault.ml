@@ -644,5 +644,6 @@ let%expect_test "A page fault during demo.c" =
     ->    224ns BEGIN _dl_catch_exception [inferred start time]
     ->    224ns BEGIN _fini [inferred start time]
     ->  1.373us END   _fini
-    ->  1.373us END   _dl_catch_exception |}]
+    ->  1.373us END   _dl_catch_exception
+    |}]
 ;;

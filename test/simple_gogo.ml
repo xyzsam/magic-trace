@@ -59,5 +59,6 @@ let%expect_test "an mcall/gogo pair from a small go program" =
     ->      0ns BEGIN runtime.chanrecv1 [inferred start time]
     ->      0ns BEGIN runtime.chanrecv
     -> 71.274us END   runtime.chanrecv1
-    -> 71.274us END   runtime.gcenable |}]
+    -> 71.274us END   runtime.gcenable
+    |}]
 ;;

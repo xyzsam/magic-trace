@@ -771,9 +771,19 @@ module Make_commands (Backend : Backend_intf.S) = struct
            "-perf-map-file"
            (optional (Arg_type.comma_separated Filename_unix.arg_type))
            ~doc:"FILE for JITs, path to a perf map file, in /tmp/perf-PID.map"
+       and force_intel_pt =
+         flag
+           "-force-intel-pt"
+           no_arg
+           ~doc:"Force Intel PT mode for decoding even if host doesn't support it"
        and collection_mode = Collection_mode.param
        and debug_print_perf_commands in
        fun () ->
+         let collection_mode =
+           if force_intel_pt
+           then Collection_mode.Intel_processor_trace { extra_events = [] }
+           else collection_mode
+         in
          (* Doesn't use create_elf because there's no need to check that the binary has symbols if
             we're trying to snapshot it. *)
          let elf = Elf.create executable in

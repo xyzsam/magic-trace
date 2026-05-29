@@ -3695,5 +3695,6 @@ let%expect_test "C hello world, userspace only, gcc" =
     -> 156.068us END   __run_exit_handlers
     -> 156.068us END   exit
     -> 156.068us END   __libc_start_main
-    -> 156.068us END   _start |}]
+    -> 156.068us END   _start
+    |}]
 ;;

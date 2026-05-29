@@ -792,5 +792,6 @@ let%expect_test "A raise_notrace OCaml exception" =
     -> 17.503ms END   memmove@plt
     -> 17.503ms END   caml_ml_input
     -> 17.503ms END   Stdlib.input_299
-    -> 17.503ms END   Demo3.code_begin |}]
+    -> 17.503ms END   Demo3.code_begin
+    |}]
 ;;

@@ -621,7 +621,8 @@ let%expect_test "time batch spreading" =
     (Event
      ((timestamp 103ns) (thread 1) (category 107) (name 103) (arguments ())
       (event_type Duration_end)))
-    (Error No_more_words) |}];
+    (Error No_more_words)
+    |}];
   return ()
 ;;
 
@@ -694,7 +695,8 @@ let%expect_test "enqueuing events at start" =
     (Event
      ((timestamp 3ns) (thread 1) (category 105) (name 108) (arguments ())
       (event_type Duration_end)))
-    (Error No_more_words) |}];
+    (Error No_more_words)
+    |}];
   return ()
 ;;
 
@@ -793,7 +795,8 @@ let%expect_test "filtered trace" =
     (Event
      ((timestamp 13ns) (thread 1) (category 109) (name 105) (arguments ())
       (event_type Duration_end)))
-    (Error No_more_words) |}];
+    (Error No_more_words)
+    |}];
   return ()
 ;;
 
