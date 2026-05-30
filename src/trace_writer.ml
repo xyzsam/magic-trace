@@ -575,7 +575,7 @@ let ret_without_checking_for_go_hacks t (thread_info : _ Thread_info.t) ~time =
       thread_info
       time
       { symbol = From_perf "[unknown]"
-      ; kind = Ret_from_untraced { reset_time = thread_info.callstack.create_time }
+      ; kind = Ret_from_untraced { reset_time = Mapped_time.min thread_info.callstack.create_time time }
       }
 ;;
 
