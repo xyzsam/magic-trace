@@ -46,6 +46,8 @@ module type S = sig
     -> ?filter_same_symbol_jumps:bool
          (** Whether to filter unnecessary events which are jumps within the same
              function. Default [true]. *)
+    -> ?perf_file:string
+    -> ?pid:Pid.t
     -> debug_print_perf_commands:bool
     -> recording_data:Recording.Data.t option
          (** This parameter is passed to allow [decode_events] to depend on information or

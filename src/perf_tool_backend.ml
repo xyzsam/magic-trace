@@ -577,6 +577,8 @@ end
 let decode_events
   ?perf_maps
   ?(filter_same_symbol_jumps = true)
+  ?perf_file
+  ?pid
   ~debug_print_perf_commands
   ~(recording_data : Recording.Data.t option)
   ~record_dir
@@ -598,9 +600,12 @@ let decode_events
       -> Deferred.Or_error.return []
   in
   let%bind files =
-    Sys.readdir record_dir
-    >>| Array.to_list
-    >>| List.filter ~f:(String.is_prefix ~prefix:"perf.data")
+    match perf_file with
+    | Some file -> Deferred.return [ file ]
+    | None ->
+      Sys.readdir record_dir
+      >>| Array.to_list
+      >>| List.filter ~f:(String.is_prefix ~prefix:"perf.data")
   in
   let%map result =
     Deferred.List.map files ~how:`Sequential ~f:(fun perf_data_file ->
@@ -615,9 +620,14 @@ let decode_events
           [ "-F"; "pid,tid,time,flags,ip,addr,sym,symoff,synth,dso,event,period" ]
         | Stacktrace_sampling _ -> [ "-F"; "pid,tid,time,ip,sym,symoff,dso,event,period" ]
       in
+      let perf_data_path =
+        match perf_file with
+        | Some _ -> perf_data_file
+        | None -> record_dir ^/ perf_data_file
+      in
       let args =
         List.concat
-          [ [ "script"; "-i"; record_dir ^/ perf_data_file; "--ns" ]
+          [ [ "script"; "-i"; perf_data_path; "--ns" ]
           ; itrace_opts
           ; fields_opts
           ; dlfilter_opts
@@ -638,6 +648,16 @@ let decode_events
            (Process.stderr perf_script_proc)
            (Writer.pipe (force Writer.stderr)));
       let events = Perf_decode.to_events ?perf_maps line_pipe in
+      let events =
+        match pid with
+        | None -> events
+        | Some target_pid ->
+          Pipe.filter_map events ~f:(fun event ->
+            let thread = Event.thread event in
+            match thread.pid with
+            | None -> None
+            | Some p -> if Pid.equal p target_pid then Some event else None)
+      in
       let close_result =
         let%map exit_or_signal = Process.wait perf_script_proc in
         perf_exit_to_or_error exit_or_signal

@@ -215,6 +215,8 @@ module Make_commands (Backend : Backend_intf.S) = struct
 
   let decode_to_trace
     ?perf_maps
+    ?perf_file
+    ?pid
     ?range_symbols
     ~elf
     ~trace_scope
@@ -236,6 +238,8 @@ module Make_commands (Backend : Backend_intf.S) = struct
     let decode_events ?filter_same_symbol_jumps () =
       Backend.decode_events
         ?perf_maps
+        ?perf_file
+        ?pid
         ?filter_same_symbol_jumps
         decode_opts
         ~debug_print_perf_commands
@@ -771,6 +775,16 @@ module Make_commands (Backend : Backend_intf.S) = struct
            "-perf-map-file"
            (optional (Arg_type.comma_separated Filename_unix.arg_type))
            ~doc:"FILE for JITs, path to a perf map file, in /tmp/perf-PID.map"
+       and perf_file =
+         flag
+           "-perf-file"
+           (optional Filename_unix.arg_type)
+           ~doc:"FILE Path to perf.data file."
+       and pid =
+         flag
+           "-pid"
+           (optional int)
+           ~doc:"PID Process ID to filter by."
        and force_intel_pt =
          flag
            "-force-intel-pt"
@@ -795,6 +809,8 @@ module Make_commands (Backend : Backend_intf.S) = struct
          in
          decode_to_trace
            ?perf_maps
+           ?perf_file
+           ?pid:(Option.map pid ~f:Pid.of_int)
            ~elf
            ~trace_scope
            ~debug_print_perf_commands
