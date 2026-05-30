@@ -9,7 +9,7 @@ let saturating_sub_i64 a b =
 
 let perf_event_header_re =
   Re.Perl.re
-    {|^ *([0-9]+)/([0-9]+)\s+([0-9]+)\.([0-9]+):\s+([0-9]+)\s+([a-z\-]+)(/[a-z=0-9]+)?(/[a-zA-Z]*)?:([a-zA-Z]+:)?(.*)$|}
+    {|^ *(?:(\S+) +)?([0-9]+)/([0-9]+)\s+([0-9]+)\.([0-9]+):\s+([0-9]+)\s+([a-z\-]+)(/[a-z=0-9]+)?(/[a-zA-Z]*)?:([a-zA-Z]+:)?(.*)$|}
   |> Re.compile
 ;;
 
@@ -76,6 +76,7 @@ let parse_event_header line =
   else (
     match Re.Group.all (Re.exec perf_event_header_re line) with
     | [| _
+       ; comm
        ; pid
        ; tid
        ; time_hi
@@ -89,6 +90,12 @@ let parse_event_header line =
       |] ->
       let pid = maybe_pid_of_string pid in
       let tid = maybe_pid_of_string tid in
+      Option.iter pid ~f:(fun p ->
+        if not (String.is_empty comm) then
+          Process_info.set_cmdline p [comm]);
+      Option.iter tid ~f:(fun t ->
+        if not (String.is_empty comm) then
+          Process_info.set_thread_name t comm);
       let time = parse_time ~time_hi ~time_lo in
       let period = Int.of_string period in
       let event =

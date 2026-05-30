@@ -617,8 +617,8 @@ let decode_events
       let fields_opts =
         match collection_mode with
         | Intel_processor_trace _ ->
-          [ "-F"; "pid,tid,time,flags,ip,addr,sym,symoff,synth,dso,event,period" ]
-        | Stacktrace_sampling _ -> [ "-F"; "pid,tid,time,ip,sym,symoff,dso,event,period" ]
+          [ "-F"; "comm,pid,tid,time,flags,ip,addr,sym,symoff,synth,dso,event,period" ]
+        | Stacktrace_sampling _ -> [ "-F"; "comm,pid,tid,time,ip,sym,symoff,dso,event,period" ]
       in
       let perf_data_path =
         match perf_file with

@@ -525,17 +525,26 @@ let create_thread t event =
     else [%string "[pid=%{pid}] [tid=%{tid}]"]
   in
   let name =
-    match thread.pid with
-    | None -> default_name
-    | Some pid ->
-      (match Process_info.cmdline_of_pid pid with
-       | None -> default_name
-       | Some cmdline ->
-         let concat_cmdline = String.concat ~sep:" " cmdline in
-         let name = [%string "%{concat_cmdline} %{default_name}"] in
-         if String.length name > Tracing_zero.Writer.max_interned_string_length
-         then default_name
-         else name)
+    let thread_name = Option.bind thread.tid ~f:Process_info.thread_name_of_tid in
+    let base_name =
+      match thread_name with
+      | Some name -> name
+      | None ->
+        (match thread.pid with
+         | None -> ""
+         | Some pid ->
+           (match Process_info.cmdline_of_pid pid with
+            | None -> ""
+            | Some cmdline -> String.concat ~sep:" " cmdline))
+    in
+    let name =
+      if String.is_empty base_name
+      then default_name
+      else [%string "%{base_name} %{default_name}"]
+    in
+    if String.length name > Tracing_zero.Writer.max_interned_string_length
+    then default_name
+    else name
   in
   let track_group_id = allocate_pid t ~name in
   let thread = allocate_thread t ~pid:track_group_id ~name:"main" in

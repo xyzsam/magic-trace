@@ -27,3 +27,18 @@ let read_all_proc_info () =
 ;;
 
 let cmdline_of_pid pid = Hashtbl.find state pid
+
+let set_cmdline pid cmdline =
+  if not (Hashtbl.mem state pid) then Hashtbl.set state ~key:pid ~data:cmdline
+;;
+
+let thread_names = Hashtbl.create (module Pid)
+
+let set_thread_name tid name = Hashtbl.set thread_names ~key:tid ~data:name
+
+let thread_name_of_tid tid = Hashtbl.find thread_names tid
+
+let clear () =
+  Hashtbl.clear state;
+  Hashtbl.clear thread_names
+;;
