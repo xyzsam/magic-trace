@@ -431,7 +431,10 @@ let split_line_pipe pipe : string list Pipe.Reader.t =
          in
          let%map () =
            if List.length acc > 0 && should_write
-           then Pipe.write writer (List.rev acc)
+           then
+             if Pipe.is_closed writer
+             then Deferred.unit
+             else Pipe.write writer (List.rev acc)
            else Deferred.return ()
          in
          let prev_acc = if should_write then [] else acc in
@@ -439,7 +442,10 @@ let split_line_pipe pipe : string list Pipe.Reader.t =
      in
      let%map () =
        if List.length acc > 0
-       then Pipe.write writer (List.rev acc)
+       then
+         if Pipe.is_closed writer
+         then Deferred.unit
+         else Pipe.write writer (List.rev acc)
        else Deferred.return ()
      in
      Pipe.close writer);
@@ -791,6 +797,8 @@ module%test _ = struct
             (Trace (trace_state_change End) (kind Async) (src 0x7f6fce0b71f4)
              (dst 0x0)))))) |}]
   ;;
+
+
 end
 
 module For_testing = struct

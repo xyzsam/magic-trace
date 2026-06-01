@@ -9,6 +9,8 @@ val debug : bool ref
 
 type t [@@deriving sexp_of]
 
+exception Max_duration_reached
+
 val create
   :  trace_scope:Trace_scope.t
   -> debug_info:Elf.Addr_table.t option
@@ -16,6 +18,7 @@ val create
   -> earliest_time:Time_ns.Span.t
   -> hits:(string * Breakpoint.Hit.t) list
   -> annotate_inferred_start_times:bool
+  -> ?max_duration:Time_ns.Span.t
   -> Tracing.Trace.t
   -> t
 
@@ -56,6 +59,7 @@ val create_expert
   -> earliest_time:Time_ns.Span.t
   -> hits:(string * Breakpoint.Hit.t) list
   -> annotate_inferred_start_times:bool
+  -> ?max_duration:Time_ns.Span.t
   -> (module Trace with type thread = _)
   -> t
 

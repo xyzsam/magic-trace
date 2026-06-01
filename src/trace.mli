@@ -12,6 +12,7 @@ module For_testing : sig
 
   val write_trace_from_events
     :  ?ocaml_exception_info:Ocaml_exception_info.t
+    -> ?max_duration:Time_ns.Span.t
     -> events_writer:Tracing_tool_output.events_writer option
     -> writer:Tracing_zero.Writer.t option
     -> trace_scope:Trace_scope.t
@@ -19,6 +20,7 @@ module For_testing : sig
     -> hits:(string * Breakpoint.Hit.t) list
     -> events:Event.With_write_info.t Pipe.Reader.t list
     -> close_result:'a Deferred.t
+    -> kill_processes:(unit -> unit)
     -> unit
     -> 'a Deferred.t
 end

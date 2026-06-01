@@ -88,6 +88,7 @@ end
 
 let write_trace_from_events
   ?ocaml_exception_info
+  ?max_duration
   ~events_writer
   ~writer
   ~print_events
@@ -96,6 +97,7 @@ let write_trace_from_events
   ~hits
   ~events
   ~close_result
+  ~kill_processes
   ()
   =
   (* Normalize to earliest event = 0 to avoid Perfetto rounding issues *)
@@ -132,6 +134,7 @@ let write_trace_from_events
         ~earliest_time
         ~hits
         ~annotate_inferred_start_times:Env_vars.debug
+        ?max_duration
         trace
     | None ->
       Trace_writer.create_expert
@@ -141,6 +144,7 @@ let write_trace_from_events
         ~earliest_time
         ~hits
         ~annotate_inferred_start_times:Env_vars.debug
+        ?max_duration
         (module Null_writer)
   in
   (match events_writer with
@@ -173,9 +177,21 @@ let write_trace_from_events
       | Ok { data = Event_sample _; _ } | Ok { data = Power _; _ } | Error _ -> ());
     Trace_writer.write_event writer ?events_writer ev
   in
+  let%bind result =
+    Monitor.try_with (fun () ->
+      Deferred.List.iteri events ~how:`Sequential ~f:(fun index events ->
+        Pipe.iter_without_pushback events ~f:(process_event index)))
+  in
   let%bind () =
-    Deferred.List.iteri events ~how:`Sequential ~f:(fun index events ->
-      Pipe.iter_without_pushback events ~f:(process_event index))
+    match result with
+    | Ok () -> Deferred.unit
+    | Error exn ->
+      match Monitor.extract_exn exn with
+      | Trace_writer.Max_duration_reached ->
+        kill_processes ();
+        List.iter events ~f:Pipe.close_read;
+        Deferred.unit
+      | exn -> raise exn
   in
   (match events_writer with
    | Some Tracing_tool_output.{ format = Sexp; writer = w; _ } -> Writer.write_line w "))"
@@ -189,13 +205,17 @@ let get_events_and_close_result ~decode_events ~range_symbols =
   let open Deferred.Or_error.Let_syntax in
   match range_symbols with
   | None ->
-    let%map { Decode_result.events; close_result } = decode_events () in
+    let%map { Decode_result.events; close_result; kill_processes } = decode_events () in
     ( List.map events ~f:(fun events ->
         Pipe.map events ~f:(fun event ->
           Event.With_write_info.create ~should_write:true event))
-    , close_result )
+    , close_result
+    , kill_processes )
   | Some range_symbols ->
-    For_range.decode_events_and_annotate ~decode_events ~range_symbols
+    let%map events, close_result, kill_processes =
+      For_range.decode_events_and_annotate ~decode_events ~range_symbols
+    in
+    events, close_result, kill_processes
 ;;
 
 module Make_commands (Backend : Backend_intf.S) = struct
@@ -204,6 +224,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
       { output_config : Tracing_tool_output.t
       ; decode_opts : Backend.Decode_opts.t
       ; print_events : bool
+      ; max_duration : Time_ns.Span.t option
       }
   end
 
@@ -223,7 +244,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
     ~debug_print_perf_commands
     ~record_dir
     ~collection_mode
-    { Decode_opts.output_config; decode_opts; print_events }
+    { Decode_opts.output_config; decode_opts; print_events; max_duration }
     =
     Core.eprintf "[ Decoding, this takes a while... ]\n%!";
     let recording_data =
@@ -275,12 +296,13 @@ module Make_commands (Backend : Backend_intf.S) = struct
           | true -> None
           | false -> Option.bind elf ~f:Elf.ocaml_exception_info
         in
-        let%bind events, close_result =
+        let%bind events, close_result, kill_processes =
           get_events_and_close_result ~decode_events ~range_symbols
         in
         let%bind () =
           write_trace_from_events
             ?ocaml_exception_info
+            ?max_duration
             ~events_writer
             ~writer
             ~debug_info
@@ -289,6 +311,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
             ~hits
             ~events
             ~close_result
+            ~kill_processes
             ()
         in
         return ())
@@ -583,8 +606,18 @@ module Make_commands (Backend : Backend_intf.S) = struct
     let%map_open.Command output_config = Tracing_tool_output.param
     and print_events =
       flag "-z-print-events" no_arg ~doc:"Prints decoded [Event.t]s." |> debug_flag
-    and decode_opts = Backend.Decode_opts.param in
-    { Decode_opts.output_config; decode_opts; print_events }
+    and decode_opts = Backend.Decode_opts.param
+    and max_duration =
+      flag
+        "-max-duration"
+        (optional string)
+        ~doc:"DURATION Stop tracing after this duration (e.g., 50ms, 1s, 100us)."
+    in
+    { Decode_opts.output_config
+    ; decode_opts
+    ; print_events
+    ; max_duration = Option.map max_duration ~f:Time_ns.Span.of_string
+    }
   ;;
 
   let run_command =
@@ -837,9 +870,10 @@ module For_testing = struct
       Deferred.Or_error.return
         { Decode_result.events = [ Pipe.of_list events ]
         ; close_result = Deferred.Or_error.return ()
+        ; kill_processes = (fun () -> ())
         }
     in
-    let%map events, _ =
+    let%map events, _, _ =
       get_events_and_close_result ~decode_events ~range_symbols
       |> Deferred.Or_error.ok_exn
     in

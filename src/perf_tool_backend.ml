@@ -607,6 +607,7 @@ let decode_events
       >>| Array.to_list
       >>| List.filter ~f:(String.is_prefix ~prefix:"perf.data")
   in
+  let processes = ref [] in
   let%map result =
     Deferred.List.map files ~how:`Sequential ~f:(fun perf_data_file ->
       let itrace_opts =
@@ -642,6 +643,7 @@ let decode_events
          [perf_fork_exec] to avoid the [perf script] process from outliving
          the parent. *)
       let%map perf_script_proc = Process.create_exn ~env:perf_env ~prog:perf ~args () in
+      processes := perf_script_proc :: !processes;
       let line_pipe = Process.stdout perf_script_proc |> Reader.lines in
       don't_wait_for
         (Reader.transfer
@@ -672,5 +674,9 @@ let decode_events
       let%bind.Deferred.Or_error () = close_result in
       Deferred.return acc)
   in
-  Ok { Decode_result.events; close_result }
+  let kill_processes () =
+    List.iter !processes ~f:(fun p ->
+      try Signal_unix.send_i Signal.kill (`Pid (Process.pid p)) with _ -> ())
+  in
+  Ok { Decode_result.events; close_result; kill_processes }
 ;;

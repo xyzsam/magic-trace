@@ -69,7 +69,7 @@ let remove_unmatched_hits (hits : Symbol_hit.t list) =
    [range_start_symbol] at the same time, they will all be marked [should_write = true]. *)
 let decode_events_and_annotate ~decode_events ~range_symbols =
   let open Deferred.Or_error.Let_syntax in
-  let%bind { Decode_result.events; close_result } = decode_events ()
+  let%bind { Decode_result.events; close_result; kill_processes } = decode_events ()
   and range_hit_times = range_hit_times ~decode_events ~range_symbols in
   let hit_sequences = List.map range_hit_times ~f:remove_unmatched_hits in
   let events =
@@ -98,5 +98,5 @@ let decode_events_and_annotate ~decode_events ~range_symbols =
           ( (hits, in_filtered_region)
           , Event.With_write_info.create ~should_write:in_filtered_region event )))
   in
-  return (events, close_result)
+  return (events, close_result, kill_processes)
 ;;

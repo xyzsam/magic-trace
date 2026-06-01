@@ -32,6 +32,8 @@ end = struct
   include Comparable.Make (T)
 end
 
+exception Max_duration_reached
+
 module Pending_event = struct
   module Kind = struct
     type t =
@@ -146,6 +148,7 @@ type 'thread inner =
   ; mutable in_filtered_region : bool
   ; suppressed_errors : Hash_set.M(Source_code_position).t
   ; mutable transaction_events : Event.With_write_info.t Deque.t
+  ; max_duration : Time_ns.Span.t option
   }
 
 type t = T : 'thread inner -> t
@@ -305,6 +308,7 @@ let create_expert
   ~earliest_time
   ~hits
   ~annotate_inferred_start_times
+  ?max_duration
   trace
   =
   let base_time =
@@ -323,6 +327,7 @@ let create_expert
       ; in_filtered_region = true
       ; suppressed_errors = Hash_set.create (module Source_code_position)
       ; transaction_events = Deque.create ()
+      ; max_duration
       }
   in
   write_hits t hits;
@@ -336,6 +341,7 @@ let create
   ~earliest_time
   ~hits
   ~annotate_inferred_start_times
+  ?max_duration
   trace
   =
   create_expert
@@ -345,6 +351,7 @@ let create
     ~earliest_time
     ~hits
     ~annotate_inferred_start_times
+    ?max_duration
     (Real_trace.create trace)
 ;;
 
@@ -1038,6 +1045,12 @@ and write_event' (T t) ?events_writer event =
   in
   let thread = thread_info.thread in
   let time = event_time t event thread_info in
+  (match t.max_duration with
+   | None -> ()
+   | Some max_duration ->
+     if Time_ns.Span.( (time :> Time_ns.Span.t) > max_duration ) then
+       raise Max_duration_reached
+  );
   let outer_event = event in
   maybe_start_filtered_region t ~should_write ~time;
   maybe_stop_filtered_region t ~should_write;

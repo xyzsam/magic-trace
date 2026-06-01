@@ -67,7 +67,10 @@ end = struct
     }
   ;;
 
-  let start_recording () = Queue.clear events
+  let start_recording () =
+    Queue.clear events;
+    Magic_trace_lib.Process_info.clear ()
+  ;;
   let random_event' kind symbol : Event.t = Ok (random_ok_event ~kind ~symbol ())
 
   let call () =
@@ -138,7 +141,7 @@ module With = struct
   end
 end
 
-let dump_using_file ?range_symbols events =
+let dump_using_file ?range_symbols ?max_duration events =
   let%bind events = get_events_pipe ?range_symbols ~events () in
   let close_result = return (Ok ()) in
   let buf = Iobuf.create ~len:500_000 in
@@ -153,6 +156,8 @@ let dump_using_file ?range_symbols events =
       ~hits:[]
       ~events:[ events ]
       ~close_result
+      ?max_duration
+      ~kill_processes:(fun () -> ())
       ()
   in
   ok_exn or_error;
@@ -168,6 +173,78 @@ let dump_using_file ?range_symbols events =
   done
   |> [%sexp_of: (unit, Tracing.Parser.Parse_error.t) Result.t]
   |> print_s;
+  return ()
+;;
+
+let%expect_test "max duration" =
+  let open Trace_helpers in
+  let%bind.With _dirname = Expect_test_helpers_async.within_temp_dir in
+  start_recording ();
+  add Call 1000 "A";
+  add Return 2000 "A";
+  add Call 3000 "B";
+  add Return 4000 "B";
+  let events = events () in
+  let%bind () = dump_using_file ~max_duration:(Time_ns.Span.of_int_ns 2500) events in
+  [%expect
+    {|
+    (Interned_string (index 1) (value process))
+    (Tick_initialization (ticks_per_second 1000000000))
+    (Interned_string (index 102) (value "[pid=1234] [tid=456]"))
+    (Process_name_change (name 102) (pid 1))
+    (Interned_string (index 103) (value main))
+    (Thread_name_change (name 103) (pid 1) (tid 2))
+    (Interned_thread (index 1)
+     (value
+      ((pid 1) (tid 2) (process_name ("[pid=1234] [tid=456]"))
+       (thread_name (main)))))
+    (Interned_string (index 104) (value A))
+    (Interned_string (index 105) (value ""))
+    (Event
+     ((timestamp 1us) (thread 1) (category 105) (name 104) (arguments ())
+      (event_type Duration_end)))
+    (Interned_string (index 106) (value address))
+    (Interned_string (index 107) (value symbol))
+    (Interned_string (index 108) (value true))
+    (Interned_string (index 109) (value inferred_start_time))
+    (Event
+     ((timestamp 0s) (thread 1) (category 105) (name 104)
+      (arguments ((106 (Pointer 0x0)) (107 (String 104)) (109 (String 108))))
+      (event_type Duration_begin)))
+    (Event
+     ((timestamp 0s) (thread 1) (category 105) (name 104)
+      (arguments ((106 (Pointer 0x0)) (107 (String 104))))
+      (event_type Duration_begin)))
+    (Interned_string (index 110) (value B))
+    (Event
+     ((timestamp 2us) (thread 1) (category 105) (name 110)
+      (arguments ((106 (Pointer 0x0)) (107 (String 110))))
+      (event_type Duration_begin)))
+    (Event
+     ((timestamp 3us) (thread 1) (category 105) (name 110) (arguments ())
+      (event_type Duration_end)))
+    (Event
+     ((timestamp 3us) (thread 1) (category 105) (name 104) (arguments ())
+      (event_type Duration_end)))
+    (Error No_more_words)
+    |}];
+  return ()
+;;
+
+let%expect_test "split_line_pipe closed early" =
+  let r, w = Pipe.create () in
+  let out = Magic_trace_lib.Perf_decode.For_testing.split_line_pipe r in
+  don't_wait_for (
+    let%bind () = Pipe.write w "line1" in
+    let%bind () = Pipe.write w "\tcall1" in
+    let%bind () = Pipe.write w "line2" in
+    Pipe.close w;
+    Deferred.unit
+  );
+  Pipe.close_read out;
+  let%bind () = Clock_ns.after (Time_ns.Span.of_ms 10.) in
+  print_s [%message "Completed without raising"];
+  [%expect {| "Completed without raising" |}];
   return ()
 ;;
 
