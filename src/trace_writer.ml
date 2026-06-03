@@ -479,6 +479,82 @@ let opt_pid_to_string opt_pid =
   | Some pid -> Pid.to_string pid
 ;;
 
+let get_base_name (thread : Event.Thread.t) =
+  let thread_name = Option.bind thread.tid ~f:Process_info.thread_name_of_tid in
+  match thread_name with
+  | Some name -> name
+  | None ->
+    (match thread.pid with
+     | None -> ""
+     | Some pid ->
+       (match Process_info.cmdline_of_pid pid with
+        | None -> ""
+        | Some cmdline -> String.concat ~sep:" " cmdline))
+;;
+
+let compare_thread_for_sorting (t1 : Event.Thread.t) (t2 : Event.Thread.t) =
+  let name1 = get_base_name t1 in
+  let name2 = get_base_name t2 in
+  match String.compare name1 name2 with
+  | 0 ->
+    (match Option.compare Pid.compare t1.tid t2.tid with
+     | 0 -> Option.compare Pid.compare t1.pid t2.pid
+     | n -> n)
+  | n -> n
+;;
+
+let construct_name (thread : Event.Thread.t) =
+  let pid = opt_pid_to_string thread.pid in
+  let tid = opt_pid_to_string thread.tid in
+  let default_name =
+    if String.(pid = tid)
+    then [%string "[pid=%{pid}]"]
+    else [%string "[pid=%{pid}] [tid=%{tid}]"]
+  in
+  let base_name = get_base_name thread in
+  let name =
+    if String.is_empty base_name
+    then default_name
+    else [%string "%{base_name} %{default_name}"]
+  in
+  if String.length name > Tracing_zero.Writer.max_interned_string_length
+  then default_name
+  else name
+;;
+
+let pre_allocate_threads (T t) (threads : (Event.Thread.t * Time_ns.Span.t) list) =
+  let sorted_threads =
+    List.map threads ~f:(fun (thread, time) ->
+      let name = construct_name thread in
+      (thread, time, name))
+    |> List.sort ~compare:(fun (t1, _, _) (t2, _, _) -> compare_thread_for_sorting t1 t2)
+  in
+  List.iter sorted_threads ~f:(fun (thread, earliest_time, name) ->
+    let effective_time = map_time t earliest_time in
+    let track_group_id = allocate_pid t ~name in
+    let thread_allocated = allocate_thread t ~pid:track_group_id ~name:"main" in
+    let thread_info =
+      { Thread_info.thread = thread_allocated
+      ; callstack = Callstack.create ~create_time:effective_time
+      ; inactive_callstacks = Stack.create ()
+      ; last_decode_error_time = effective_time
+      ; ocaml_exception_state =
+          (match t.ocaml_exception_info with
+           | None -> Without_exception_info { frames_to_unwind = ref 0 }
+           | Some ocaml_exception_info ->
+             With_exception_info
+               { ocaml_exception_info; last_known_instruction_pointer = ref None })
+      ; pending_events = []
+      ; pending_time = Mapped_time.start_of_trace
+      ; start_events = Deque.create ()
+      ; last_event_time = effective_time
+      ; track_group_id
+      ; extra_event_tracks = Hashtbl.create (module Collection_mode.Event.Name)
+      }
+    in
+    Hashtbl.set t.thread_info ~key:thread ~data:thread_info)
+;;
+
 (* A practical, but not perfect, fix for #155: If events happen with the exact same timestamp
    as a decode error, stacks break. We implement this "#155 hack" to prevent that:
 
@@ -524,35 +600,7 @@ let create_thread t event =
     | None -> Mapped_time.start_of_trace
     | Some time -> map_time t time
   in
-  let pid = opt_pid_to_string thread.pid in
-  let tid = opt_pid_to_string thread.tid in
-  let default_name =
-    if String.(pid = tid)
-    then [%string "[pid=%{pid}]"]
-    else [%string "[pid=%{pid}] [tid=%{tid}]"]
-  in
-  let name =
-    let thread_name = Option.bind thread.tid ~f:Process_info.thread_name_of_tid in
-    let base_name =
-      match thread_name with
-      | Some name -> name
-      | None ->
-        (match thread.pid with
-         | None -> ""
-         | Some pid ->
-           (match Process_info.cmdline_of_pid pid with
-            | None -> ""
-            | Some cmdline -> String.concat ~sep:" " cmdline))
-    in
-    let name =
-      if String.is_empty base_name
-      then default_name
-      else [%string "%{base_name} %{default_name}"]
-    in
-    if String.length name > Tracing_zero.Writer.max_interned_string_length
-    then default_name
-    else name
-  in
+  let name = construct_name thread in
   let track_group_id = allocate_pid t ~name in
   let thread = allocate_thread t ~pid:track_group_id ~name:"main" in
   { Thread_info.thread

@@ -63,6 +63,8 @@ val create_expert
   -> (module Trace with type thread = _)
   -> t
 
+val pre_allocate_threads : t -> (Event.Thread.t * Time_ns.Span.t) list -> unit
+
 val write_event
   :  t
   -> ?events_writer:Tracing_tool_output.events_writer

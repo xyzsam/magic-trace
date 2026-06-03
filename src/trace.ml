@@ -94,24 +94,27 @@ let write_trace_from_events
   ~trace_scope
   ~debug_info
   ~hits
-  ~events
+  ~events:events_pipes
   ~close_result
   ~kill_processes
   ()
   =
-  (* Normalize to earliest event = 0 to avoid Perfetto rounding issues *)
-  let%bind.Deferred earliest_time =
-    let events = List.hd_exn events in
-    let%map.Deferred _wait_for_first = Pipe.values_available events in
-    match Pipe.peek events |> Option.map ~f:Event.With_write_info.event with
-    | Some (Ok earliest) -> earliest.time
-    | None | Some (Error _) -> Time_ns.Span.zero
+  let%bind events =
+    Deferred.List.map events_pipes ~how:`Sequential ~f:Pipe.to_list
+  in
+  let earliest_time =
+    match List.hd events with
+    | None -> Time_ns.Span.zero
+    | Some first_events ->
+      (match List.hd first_events |> Option.map ~f:Event.With_write_info.event with
+       | Some (Ok earliest) -> earliest.time
+       | None | Some (Error _) -> Time_ns.Span.zero)
   in
   let events =
     if print_events
     then
       List.map events ~f:(fun events ->
-        Pipe.map events ~f:(fun event ->
+        List.map events ~f:(fun event ->
           Core.print_s ~mach:() (Event.With_write_info.event event |> Event.sexp_of_t);
           event))
     else events
@@ -146,6 +149,23 @@ let write_trace_from_events
         ?max_duration
         (module Null_writer)
   in
+  let threads =
+    let table = Hashtbl.create (module Event.Thread) in
+    List.concat events
+    |> List.iter ~f:(fun (ev : Event.With_write_info.t) ->
+         let event = ev.event in
+         let thread = Event.thread event in
+         let time =
+           match%optional.Time_ns_unix.Span.Option Event.time event with
+           | None -> earliest_time
+           | Some time -> time
+         in
+         Hashtbl.update table thread ~f:(function
+           | None -> time
+           | Some prev_time -> Time_ns.Span.min prev_time time));
+    Hashtbl.to_alist table
+  in
+  Trace_writer.pre_allocate_threads writer threads;
   (match events_writer with
    | Some Tracing_tool_output.{ format = Sexp; writer = w; _ } ->
      Writer.write_line w "(V5 ("
@@ -158,13 +178,8 @@ let write_trace_from_events
      in
      Async.Writer.write w shape
    | _ -> ());
-  (* [earliest_time] does represent the time of earliest event, but we want to
-     ignore extra events we sampled. However setting [last_index = -1] ensures
-     that we immediately flush up to the start of the snapshot. *)
   let last_index = ref (-1) in
   let process_event index (ev : Event.With_write_info.t) =
-    (* When processing a new snapshot, clear all [Trace_writer] data in order to
-       avoid sharing callstacks, start times, etc. *)
     if not (index = !last_index)
     then (
       match ev.event with
@@ -179,7 +194,8 @@ let write_trace_from_events
   let%bind result =
     Monitor.try_with (fun () ->
       Deferred.List.iteri events ~how:`Sequential ~f:(fun index events ->
-        Pipe.iter_without_pushback events ~f:(process_event index)))
+        List.iter events ~f:(process_event index);
+        Deferred.unit))
   in
   let%bind () =
     match result with
@@ -188,7 +204,6 @@ let write_trace_from_events
       match Monitor.extract_exn exn with
       | Trace_writer.Max_duration_reached ->
         kill_processes ();
-        List.iter events ~f:Pipe.close_read;
         Deferred.unit
       | exn -> raise exn
   in
@@ -272,9 +287,12 @@ module Make_commands (Backend : Backend_intf.S) = struct
       ~f:(fun ~events_writer ~writer () ->
         let open Deferred.Or_error.Let_syntax in
         let hits =
-          In_channel.read_all (Hits_file.filename ~record_dir)
-          |> Sexp.of_string
-          |> [%of_sexp: Hits_file.t]
+          try
+            In_channel.read_all (Hits_file.filename ~record_dir)
+            |> Sexp.of_string
+            |> [%of_sexp: Hits_file.t]
+          with
+          | _ -> []
         in
         let debug_info =
           match
