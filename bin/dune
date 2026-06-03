@@ -6,7 +6,9 @@
   (language c)
   (names version_stubs))
  (preprocess
-  (pps ppx_jane)))
+  (pps ppx_jane))
+ (flags (:standard -cclib -static -cclib -no-pie))
+ (ocamlopt_flags (:standard -ccopt -static -ccopt -no-pie)))
 
 (rule
  (target version_stubs.c)
