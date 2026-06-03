@@ -106,7 +106,7 @@ let supports_dlfilter = kernel_version_at_least ~major:5 ~minor:14
 
 let detect_exn () =
   let%bind perf_version_proc =
-    Process.create_exn ~prog:Env_vars.perf_path ~args:[ "--version" ] ()
+    Process.create_exn ~prog:!Env_vars.perf_path ~args:[ "--version" ] ()
   in
   let%map { stdout; _ } = Process.collect_output_and_wait perf_version_proc in
   let version = Version.of_perf_version_string_exn stdout in

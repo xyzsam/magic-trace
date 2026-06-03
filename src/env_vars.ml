@@ -16,7 +16,7 @@ let share_command_filename = Unix.getenv "MAGIC_TRACE_SHARE_COMMAND"
 
 (* Override which [perf] to use. If this isn't set, magic-trace will use whatever's first
    in $PATH. *)
-let perf_path = Option.value ~default:"perf" (Unix.getenv "MAGIC_TRACE_PERF_PATH")
+let perf_path = ref (Option.value ~default:"perf" (Unix.getenv "MAGIC_TRACE_PERF_PATH"))
 
 (* Whether [perf] should be considered privileged when running as not-root. Bypasses error
    checks around kernel tracing when not root. *)

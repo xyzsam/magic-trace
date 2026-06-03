@@ -19,15 +19,14 @@ let supports_command command =
 ;;
 
 let supports_fzf = supports_command "fzf"
-let supports_perf = supports_command Env_vars.perf_path
-
 let check_for_perf () =
-  if force supports_perf
+  if Lazy.force (supports_command !Env_vars.perf_path)
   then return (Ok ())
   else
     Deferred.Or_error.errorf
-      "magic-trace relies on \"perf\", but it is not present in your path. You may need \
+      "magic-trace relies on %S, but it is not present in your path. You may need \
        to install it."
+      !Env_vars.perf_path
 ;;
 
 let create_elf ~executable ~(when_to_snapshot : When_to_snapshot.t) =
@@ -738,6 +737,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
       (let%map_open.Command record_opt_fn = record_flags
        and decode_opts = decode_flags
        and debug_print_perf_commands
+       and no_perf5 = flag "-no-perf5" no_arg ~doc:" Use perf instead of perf5"
        and pids =
          flag
            "-pid"
@@ -749,6 +749,8 @@ module Make_commands (Backend : Backend_intf.S) = struct
        in
        fun () ->
          let open Deferred.Or_error.Let_syntax in
+         let use_perf5 = not no_perf5 in
+         Env_vars.perf_path := if use_perf5 then "perf5" else "perf";
          let%bind () = check_for_perf () in
          let%bind (pids : Pid.t list) =
            match pids with
