@@ -9,7 +9,7 @@ let saturating_sub_i64 a b =
 
 let perf_event_header_re =
   Re.Perl.re
-    {|^ *(?:(\S+) +)?([0-9]+)/([0-9]+)\s+([0-9]+)\.([0-9]+):\s+([0-9]+)\s+([a-z\-]+)(/[a-z=0-9]+)?(/[a-zA-Z]*)?:([a-zA-Z]+:)?(.*)$|}
+    {|^ *(?:(\S+) +)?(-?[0-9]+)/(-?[0-9]+)\s+([0-9]+)\.([0-9]+):\s+([0-9]+)\s+([a-z\-]+)(/[a-z=0-9]+)?(/[a-zA-Z]*)?:([a-zA-Z]+:)?(.*)$|}
   |> Re.compile
 ;;
 
@@ -52,7 +52,7 @@ type header =
       }
 
 let maybe_pid_of_string = function
-  | "0" -> None
+  | "0" | "-1" -> None
   | pid -> Some (Pid.of_string pid)
 ;;
 
