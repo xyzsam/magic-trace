@@ -7,6 +7,7 @@ type t =
   | Untraced
   | Returned
   | Syscall
+  | Descheduled
 [@@deriving sexp, compare, equal, bin_io, hash]
 
 val display_name : t -> string

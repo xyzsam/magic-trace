@@ -35,6 +35,7 @@ module Location : sig
   val untraced : t
   val returned : t
   val syscall : t
+  val descheduled : t
 end
 
 module Ok : sig
@@ -55,6 +56,7 @@ module Ok : sig
           ; count : int
           ; name : Collection_mode.Event.Name.t
           } (** Represents counter based events collected through sampling. *)
+      | Scheduling_switch of { direction : [ `In | `Out ] }
     [@@deriving sexp]
   end
 

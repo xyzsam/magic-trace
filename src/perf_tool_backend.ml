@@ -628,7 +628,7 @@ let decode_events
       in
       let args =
         List.concat
-          [ [ "script"; "-i"; perf_data_path; "--ns" ]
+          [ [ "script"; "-i"; perf_data_path; "--ns"; "--show-switch-events" ]
           ; itrace_opts
           ; fields_opts
           ; dlfilter_opts

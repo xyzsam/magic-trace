@@ -1166,6 +1166,19 @@ and write_event' (T t) ?events_writer event =
          ~args:Tracing.Trace.Arg.[ "freq (MHz)", Int freq ]
      | { Event.Ok.thread = _ (* Already used this to look up thread info. *)
        ; time = _ (* Already in scope. Also, this time hasn't been [map_time]'d. *)
+       ; data = Scheduling_switch { direction }
+       ; in_transaction = _
+       } ->
+       (match direction with
+        | `Out -> call t thread_info ~time ~location:Event.Location.descheduled
+        | `In ->
+          if Stack.length thread_info.callstack.stack > 0
+          then (
+            let top = Stack.top_exn thread_info.callstack.stack in
+            if Symbol.equal top.symbol Symbol.Descheduled
+            then ret t thread_info ~time))
+     | { Event.Ok.thread = _ (* Already used this to look up thread info. *)
+       ; time = _ (* Already in scope. Also, this time hasn't been [map_time]'d. *)
        ; data = Stacktrace_sample { callstack }
        ; in_transaction = _
        } ->

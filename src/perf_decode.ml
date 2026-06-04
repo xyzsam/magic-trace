@@ -41,8 +41,19 @@ let symbol_and_offset_re = Re.Perl.re {|^(.*)\+(0x[0-9a-f]+)\s+\(.*\)$|} |> Re.c
 let symbol_no_offset_re = Re.Perl.re {|^(.*)\s+\(([^)]*)\)$|} |> Re.compile
 let unknown_symbol_dso_re = Re.Perl.re {|^\[unknown\]\s+\((.*)\)|} |> Re.compile
 
+let perf_switch_event_re =
+  Re.Perl.re
+    {|^ *(?:(\S+) +)?(-?[0-9]+)/(-?[0-9]+)(?: +\[[0-9]+\])?\s+([0-9]+)\.([0-9]+):\s+(PERF_RECORD_SWITCH(?:_CPU_WIDE)?)\s+(IN|OUT)(?: +preempt)?$|}
+  |> Re.compile
+;;
+
 type header =
   | Trace_error
+  | Switch of
+      { thread : Event.Thread.t
+      ; time : Time_ns.Span.t
+      ; direction : [ `In | `Out ]
+      }
   | Event of
       { thread : Event.Thread.t
       ; time : Time_ns.Span.t
@@ -73,6 +84,31 @@ let parse_time ~time_hi ~time_lo =
 let parse_event_header line =
   if String.is_prefix line ~prefix:" instruction trace error"
   then Trace_error
+  else if String.is_substring line ~substring:"PERF_RECORD_SWITCH"
+  then (
+    match Re.Group.all (Re.exec perf_switch_event_re line) with
+    | [| _; comm; pid; tid; time_hi; time_lo; _type; direction |] ->
+      let pid = maybe_pid_of_string pid in
+      let tid = maybe_pid_of_string tid in
+      Option.iter pid ~f:(fun p ->
+        if not (String.is_empty comm) then
+          Process_info.set_cmdline p [comm]);
+      Option.iter tid ~f:(fun t ->
+        if not (String.is_empty comm) then
+          Process_info.set_thread_name t comm);
+      let time = parse_time ~time_hi ~time_lo in
+      let direction =
+        match direction with
+        | "IN" -> `In
+        | "OUT" -> `Out
+        | _ -> raise_s [%message "Unexpected context switch direction" (direction : string)]
+      in
+      Switch { thread = { pid; tid }; time; direction }
+    | results ->
+      Core.print_endline "[failed parsing switch]";
+      raise_s
+        [%message
+          "Regex of perf switch output did not match expected fields" (results : string array)])
   else (
     match Re.Group.all (Re.exec perf_event_header_re line) with
     | [| _
@@ -377,6 +413,14 @@ let to_event ?perf_maps lines : Event.t option =
       let header = parse_event_header first_line in
       (match header with
        | Trace_error -> Some (Error (trace_error_to_event first_line))
+       | Switch { thread; time; direction } ->
+         Some
+           (Ok
+              { thread
+              ; time
+              ; data = Scheduling_switch { direction }
+              ; in_transaction = false
+              })
        | Event { thread; time; period; event; remaining_line } ->
          (match event with
           | `Branches ->

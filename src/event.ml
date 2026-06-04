@@ -65,6 +65,7 @@ module Location = struct
   let untraced = locationless Untraced
   let returned = locationless Returned
   let syscall = locationless Syscall
+  let descheduled = locationless Descheduled
 end
 
 module Ok = struct
@@ -83,6 +84,7 @@ module Ok = struct
           ; count : int
           ; name : Collection_mode.Event.Name.t
           }
+      | Scheduling_switch of { direction : [ `In | `Out ] }
     [@@deriving sexp, bin_io]
   end
 

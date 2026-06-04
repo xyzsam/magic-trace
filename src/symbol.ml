@@ -7,6 +7,7 @@ type t =
   | Untraced
   | Returned
   | Syscall
+  | Descheduled
 [@@deriving sexp, compare, bin_io, hash]
 
 (* [Int64.Hex] (used by [Perf_map_location]) doesn't derive [equal], so we implement
@@ -18,6 +19,7 @@ let display_name = function
   | Untraced -> "[untraced]"
   | Returned -> "[returned]"
   | Syscall -> "[syscall]"
+  | Descheduled -> "[descheduled]"
   | From_perf name -> name
   | From_perf_map { function_; _ } -> function_
 ;;
