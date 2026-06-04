@@ -103,13 +103,9 @@ let parse_event_header line =
         | "branches" -> `Branches
         | "cbr" -> `Cbr
         | "psb" -> `Psb
-        | "cycles" -> `Cycles
         | "branch-misses" -> `Branch_misses
         | "cache-misses" -> `Cache_misses
-        | _ ->
-          raise_s
-            [%message
-              "Unexpected event type when parsing perf output" (event_name : string)]
+        | _ -> `Cycles
       in
       Event { thread = { pid; tid }; time; period; event; remaining_line }
     | results ->
